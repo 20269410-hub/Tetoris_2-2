@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>레트로 도트 테트리스 - GHOST GUIDE</title>
+<title>레트로 도트 테트리스 - GHOST GUIDE & HOLD</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
@@ -121,27 +121,31 @@
 
   canvas { background: #000; display: block; image-rendering: pixelated; }
 
-  .side-panel { width: 100px; display: flex; flex-direction: column; gap: 15px; }
+  .side-panel { width: 100px; display: flex; flex-direction: column; gap: 10px; }
   .info-box { background: #000; padding: 10px; border: 2px solid #444; }
   .info-label { font-size: 8px; color: #aaa; margin-bottom: 8px; }
   .info-value { font-size: 14px; color: #fff; }
-  #nextCanvas { margin: 5px auto 0; border: 1px solid #333; }
-  .controls { margin-top: auto; font-size: 7px; color: #888; text-align: left; line-height: 1.8; }
+  
+  #nextCanvas, #holdCanvas { margin: 5px auto 0; border: 1px solid #333; }
+  
+  .controls { margin-top: auto; font-size: 6px; color: #888; text-align: left; line-height: 1.8; }
 
   .mobile-controls {
     display: flex;
-    gap: 15px;
+    gap: 8px;
     margin-top: 20px;
     justify-content: center;
+    flex-wrap: wrap;
+    max-width: 350px;
   }
 
   .m-btn {
-    width: 60px;
-    height: 60px;
+    width: 50px;
+    height: 50px;
     background: #222;
     border: 3px solid #555;
     color: white;
-    font-size: 24px;
+    font-size: 18px;
     border-radius: 10px;
     touch-action: none; 
     user-select: none;
@@ -170,7 +174,7 @@
   @media (max-width: 400px) {
     .game-container { gap: 10px; padding: 5px; }
     .side-panel { width: 80px; }
-    .m-btn { width: 50px; height: 50px; font-size: 20px; }
+    .m-btn { width: 45px; height: 45px; font-size: 16px; }
     .controls { display: none; } 
   }
 </style>
@@ -198,10 +202,11 @@
     <div id="helpScreen" class="overlay">
       <h2 style="color: #33FF00; font-size: 16px; margin-bottom: 25px;">CONTROLS</h2>
       <div class="help-text">
-        <p>← → : MOVE LEFT/RIGHT</p>
-        <p>↑ &nbsp;&nbsp;: ROTATE PIECE</p>
+        <p>← → : MOVE</p>
+        <p>↑ &nbsp;&nbsp;: ROTATE</p>
         <p>↓ &nbsp;&nbsp;: SOFT DROP</p>
         <p>↓(x2): HARD DROP</p>
+        <p>C/Sft: HOLD PIECE</p>
       </div>
       <button class="btn secondary" onclick="hideHelp()">BACK TO MENU</button>
     </div>
@@ -228,8 +233,13 @@
 
     <div class="side-panel">
       <div class="info-box">
+        <div class="info-label">HOLD</div>
+        <canvas id="holdCanvas" width="4" height="4" style="width: 60px; height: 60px;"></canvas>
+      </div>
+
+      <div class="info-box">
         <div class="info-label">NEXT</div>
-        <canvas id="nextCanvas" width="4" height="4" style="width: 70px; height: 70px;"></canvas>
+        <canvas id="nextCanvas" width="4" height="4" style="width: 60px; height: 60px;"></canvas>
       </div>
 
       <div class="info-box">
@@ -243,14 +253,16 @@
       </div>
 
       <div class="controls">
-        <p>← → :MOVE</p>
-        <p>↑   :ROTATE</p>
-        <p>↓   :DROP (x2: HARD DROP)</p>
+        <p>← →:MOVE</p>
+        <p>↑  :ROT</p>
+        <p>↓  :DROP</p>
+        <p>C  :HOLD</p>
       </div>
     </div>
   </div>
 
   <div class="mobile-controls">
+    <div class="m-btn" id="btn-hold" style="color: #FFCC00; border-color: #FFCC00;">H</div>
     <div class="m-btn" id="btn-left">←</div>
     <div class="m-btn" id="btn-down">↓</div>
     <div class="m-btn" id="btn-right">→</div>
@@ -263,6 +275,9 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const nextCanvas = document.getElementById("nextCanvas");
 const nextCtx = nextCanvas.getContext("2d");
+const holdCanvas = document.getElementById("holdCanvas");
+const holdCtx = holdCanvas.getContext("2d");
+
 const scoreEl = document.getElementById("score");
 const levelEl = document.getElementById("level");
 const startMenu = document.getElementById("startMenu");
@@ -278,7 +293,8 @@ const SIZE = 20;
 const COLORS = [null, '#FF0033', '#FFCC00', '#33FF00', '#9900FF', '#00CCFF'];
 
 let board, score, level, gameInterval, isPaused = true, isGameOver = false, bestScore = 0;
-let piece, nextPiece;
+let piece, nextPiece, holdPiece = null;
+let canHold = true; // 연속 홀드 방지용 플래그
 let dropEffects = [];
 
 const tetrominoes = [
@@ -306,17 +322,14 @@ function hideHelp() {
 }
 
 function togglePause() {
-  // 게임 오버 상태이거나 시작 전이면 일시정지 불가
   if (isGameOver || startMenu.style.display === "flex" || helpScreen.style.display === "flex") return; 
 
   if (isPaused) {
-    // 재개
     isPaused = false;
     pauseMenu.style.display = "none";
     let currentSpeed = Math.max(100, 500 - (level - 1) * 50);
     gameInterval = setInterval(drop, currentSpeed);
   } else {
-    // 일시정지
     isPaused = true;
     clearInterval(gameInterval);
     pauseMenu.style.display = "flex";
@@ -331,7 +344,6 @@ function quitGame() {
   gameOverScreen.style.display = "none";
   startMenu.style.display = "flex";
   
-  // 화면 초기화
   board = Array.from({length: ROW}, () => Array(COL).fill(0));
   piece = null;
   draw();
@@ -340,6 +352,33 @@ function quitGame() {
 function createPiece() {
   const p = tetrominoes[Math.floor(Math.random() * tetrominoes.length)];
   return { shape: p.shape, color: p.color, x: 3, y: 0 };
+}
+
+// === 홀드 기능 ===
+function hold() {
+  if (isPaused || isGameOver || !canHold || !piece) return;
+
+  // 원본 블록 형태 찾기 (회전된 상태 초기화)
+  const basePiece = tetrominoes.find(p => p.color === piece.color);
+
+  if (!holdPiece) {
+    holdPiece = { shape: basePiece.shape, color: basePiece.color };
+    piece = nextPiece;
+    nextPiece = createPiece();
+  } else {
+    const temp = holdPiece;
+    holdPiece = { shape: basePiece.shape, color: basePiece.color };
+    piece = { shape: temp.shape, color: temp.color, x: 3, y: 0 };
+  }
+
+  // 위치 초기화 및 홀드 잠금
+  piece.x = 3;
+  piece.y = 0;
+  canHold = false; 
+
+  drawHold();
+  drawNext();
+  draw();
 }
 
 function drawSquare(x, y, colorIndex, context, size = SIZE, isGhost = false) {
@@ -409,23 +448,24 @@ function draw() {
       });
     });
   });
-
-  drawNext();
 }
 
-function drawNext() {
-  nextCtx.fillStyle = "#000";
-  nextCtx.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
-  if (!nextPiece) return;
-  const shape = nextPiece.shape;
+function drawMiniCanvas(context, targetCanvas, targetPiece) {
+  context.fillStyle = "#000";
+  context.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+  if (!targetPiece) return;
+  const shape = targetPiece.shape;
   const offsetX = Math.floor((4 - shape[0].length) / 2);
   const offsetY = Math.floor((4 - shape.length) / 2);
   shape.forEach((row, dy) => {
     row.forEach((value, dx) => {
-      if (value) drawSquare(dx + offsetX, dy + offsetY, nextPiece.color, nextCtx, 1);
+      if (value) drawSquare(dx + offsetX, dy + offsetY, targetPiece.color, context, 1);
     });
   });
 }
+
+function drawNext() { drawMiniCanvas(nextCtx, nextCanvas, nextPiece); }
+function drawHold() { drawMiniCanvas(holdCtx, holdCanvas, holdPiece); }
 
 function collide(px, py, shape) {
   return shape.some((row, dy) =>
@@ -492,8 +532,11 @@ function drop() {
       }
     }
 
+    // 다음 블록으로 넘어가면 홀드 기능 재활성화
     piece = nextPiece;
     nextPiece = createPiece();
+    canHold = true; 
+    drawNext();
 
     if (collide(piece.x, piece.y, piece.shape)) endGame();
   }
@@ -527,6 +570,10 @@ function startGame() {
   isGameOver = false;
   dropEffects = []; 
   
+  // 홀드 초기화
+  holdPiece = null;
+  canHold = true;
+  
   startMenu.style.display = "none";
   gameOverScreen.style.display = "none";
   pauseMenu.style.display = "none";
@@ -536,6 +583,8 @@ function startGame() {
   
   if (gameInterval) clearInterval(gameInterval);
   gameInterval = setInterval(drop, 500); 
+  drawNext();
+  drawHold();
   draw();
 }
 
@@ -567,12 +616,10 @@ function rotate() {
 let lastDownTime = 0;
 
 document.addEventListener("keydown", e => {
-  // ESC 누르면 일시정지
   if (e.key === "Escape") {
     togglePause();
     return;
   }
-
   if (isPaused) return;
 
   if (e.key === "ArrowLeft") moveLeft();
@@ -592,6 +639,11 @@ document.addEventListener("keydown", e => {
     }
   }
   if (e.key === "ArrowUp") rotate();
+  
+  // C 또는 Shift 키로 홀드
+  if (e.key === "c" || e.key === "C" || e.key === "Shift") {
+    hold();
+  }
 });
 
 function setupHoldButton(btn, action, isContinuous = true, isDownBtn = false) {
@@ -633,11 +685,13 @@ function setupHoldButton(btn, action, isContinuous = true, isDownBtn = false) {
   });
 }
 
+const btnHold = document.getElementById("btn-hold");
 const btnLeft = document.getElementById("btn-left");
 const btnRight = document.getElementById("btn-right");
 const btnDown = document.getElementById("btn-down");
 const btnRotate = document.getElementById("btn-rotate");
 
+setupHoldButton(btnHold, hold, false); 
 setupHoldButton(btnLeft, moveLeft, true);
 setupHoldButton(btnRight, moveRight, true);
 setupHoldButton(btnDown, moveDown, true, true);
